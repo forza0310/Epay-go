@@ -1,0 +1,10 @@
+/bin/
+/data/
+.env
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+.DS_Store
+.idea/
