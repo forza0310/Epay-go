@@ -3,8 +3,9 @@ package zpay
 
 // ErrorResponse 保留文档示例中 code="error" 的失败格式。
 type ErrorResponse struct {
-	Code    string `json:"code"`
+	Code    string `json:"code"` // `json:"code"` 是结构体标签，他是一种元数据。encoding/json 会读取它，决定 JSON 字段名。
 	Message string `json:"msg"`
+	// 标准库 JSON 编码通常只处理导出字段，也就是首字母大写的字段。
 }
 
 // PayResponse 保留 O_id 大小写；本系统的 O_id 将使用自身订单号。

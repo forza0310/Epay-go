@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-// Config 是启动配置，默认仅监听本机，避免框架阶段意外暴露公网。
+// Config 是启动配置，默认仅监听本机。
 type Config struct{ Addr string }
 
 // Load 从环境读取配置并在启动前验证监听地址。

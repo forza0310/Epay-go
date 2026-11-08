@@ -21,9 +21,101 @@ internal/plugin/alipaycode       首个插件骨架
 internal/storage/sqlite          当前只有 SQL 数据模型草案
 ```
 
-依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
+### 当前包依赖图
+
+箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示项目内部依赖。当前 HTTP 层尚未接入支付用例；`internal/channel` 已有模型但暂未被其他包引用。SQLite 目录目前只有 SQL 草案，不计为 Go 包。
+
+```mermaid
+flowchart TB
+    subgraph Bootstrap["启动与装配"]
+        Main["cmd/epay"]
+        App["internal/app"]
+        Config["internal/config"]
+    end
+
+    subgraph HTTP["HTTP 与协议"]
+        Handler["internal/httpapi"]
+        Zpay["internal/protocol/zpay"]
+    end
+
+    subgraph Plugins["插件契约与实现"]
+        Registry["internal/plugin"]
+        Alipaycode["internal/plugin/alipaycode"]
+    end
+
+    subgraph Domain["领域模型与存储契约"]
+        Payment["internal/payment"]
+        Channel["internal/channel<br/>暂未接入"]
+    end
+
+    Main --> App
+    Main --> Config
+    App --> Config
+    App --> Handler
+    App --> Registry
+    App --> Alipaycode
+    Handler --> Zpay
+    Registry --> Payment
+    Alipaycode --> Registry
+    Alipaycode --> Payment
+```
+
+目标依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
 
 后续按真实功能引入 `internal/admin`（单管理员身份与会话）、`internal/notification`（通知投递）与用例/worker 实现。当前不为尚未实现的功能创建空包。
+
+## 目标运行架构
+
+下图表示计划中的调用与数据流，箭头不表示 Go 的 import 关系。虚线框模块尚未完成业务实现；目前只有进程装配、HTTP 骨架、协议基础能力和插件注册可运行。付款人是外部支付参与者，不是系统新增的用户角色。
+
+```mermaid
+flowchart TB
+    Owner["唯一收款管理员"]
+    Business["自有业务网站"]
+    Payer["付款人"]
+    Alipay["支付宝"]
+    Database[("SQLite 数据文件")]
+
+    subgraph Process["epay 单进程"]
+        Admin["管理员后台与会话<br/>待实现"]
+        API["ZPAY 兼容入口<br/>已有路由，业务待接入"]
+        Checkout["收银台与状态查询<br/>待实现"]
+        Usecase["支付用例<br/>验签、幂等建单、订单查询"]
+        ChannelConfig["通道配置<br/>账户选择与凭证解密"]
+        Plugin["alipaycode 插件<br/>已有契约，渠道调用待实现"]
+        Poller["账单采集 worker<br/>分页、补查、游标恢复"]
+        Confirm["到账匹配与订单确认<br/>账户、方向、金额、流水去重"]
+        Store["SQLite 适配器与事务<br/>已有表结构草案"]
+        Notify["通知 worker<br/>签名、投递、重试"]
+    end
+
+    Owner -->|配置收款方式| Admin
+    Admin --> ChannelConfig
+    ChannelConfig --> Store
+    Business -->|下单或查询| API
+    API --> Usecase
+    Payer --> Checkout
+    Checkout -->|查询订单状态| Usecase
+    Usecase -->|选取有效通道| ChannelConfig
+    Usecase -->|持久化或查询订单| Store
+    Usecase -->|生成付款入口| Plugin
+    Checkout -->|引导付款| Alipay
+    Poller -->|读取通道配置| ChannelConfig
+    Poller -->|查询账务明细| Plugin
+    Plugin -->|请求签名与响应验签| Alipay
+    Plugin -->|标准化到账记录| Poller
+    Poller -->|保存流水与查询进度| Store
+    Poller -->|提交有效入账候选| Confirm
+    Confirm -->|事务确认订单并写入通知任务| Store
+    Notify -->|领取任务及记录投递结果| Store
+    Notify -->|签名 GET 通知| Business
+    Store --> Database
+
+    classDef planned fill:#fff7ed,stroke:#b45309,stroke-width:1px,stroke-dasharray:5 5;
+    class Admin,API,Checkout,Usecase,ChannelConfig,Plugin,Poller,Confirm,Store,Notify planned;
+```
+
+运行边界：HTTP 服务、采集任务和通知任务共享一个进程；插件是进程内的可信实现。数据库事务只覆盖本地持久化，支付宝查询和业务通知均在事务之外执行。图中的 worker 和用例是逻辑职责，具体分包随实现确定，不要求每个方框创建一个包。
 
 ## 计划中的下单流程
 

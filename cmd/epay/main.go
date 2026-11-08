@@ -1,4 +1,4 @@
-// Command epay 启动单管理员收款服务，负责进程信号和退出状态。
+// Command epay 启动单用户收款服务，负责进程信号和退出状态。
 package main
 
 import (
@@ -20,7 +20,7 @@ func main() {
 	}
 }
 
-// run 使初始化与运行错误沿调用链返回，不在业务包中退出进程。
+// 初始化。运行错误沿调用链返回，不在业务包中退出进程。
 func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
