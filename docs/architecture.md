@@ -1,6 +1,6 @@
 # 架构与数据流程
 
-状态：框架评审稿。技术选型为 Go 标准库服务、单实例 SQLite 和可信编译式插件；业务实现仍待确认。
+状态：框架、SQLite 持久化和加密模块已实现；管理员与支付业务另行接入。技术选型为 Go 标准库 HTTP、单实例 SQLite 和可信编译式插件。
 
 ## 系统边界
 
@@ -16,16 +16,18 @@ internal/config                  启动环境配置
 internal/httpapi                 HTTP 路由、输入输出边界
 internal/protocol/zpay           外部协议 DTO 与签名规范
 internal/payment                 订单、金额、到账流水、原子存储契约
-internal/channel                 收款账户与插件实例配置
+internal/channel                 收款账户与插件实例配置加密
+internal/securebox               AES-GCM 加解密
+internal/admin                   仓储使用的凭证数据结构
 internal/plugin                  插件契约、注册表
 internal/plugin/builtin          自动生成的插件装配
 internal/plugin/alipaycode       首个插件骨架
-internal/storage/sqlite          当前只有 SQL 数据模型草案
+internal/storage/sqlite          连接、迁移、管理员及通道仓储
 ```
 
 ### 当前包依赖图
 
-箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。当前 HTTP 层尚未接入支付用例；`internal/channel` 已有模型但暂未被其他包引用。SQLite 目录目前只有 SQL 草案，不计为 Go 包。
+箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。HTTP 与启动装配尚未接入持久化模块。SQLite 依赖管理员凭证及通道模型，身份业务和 HTTP 管理另行接入。
 
 ```mermaid
 flowchart TB
@@ -48,7 +50,10 @@ flowchart TB
 
     subgraph Domain["领域模型与存储契约"]
         Payment["internal/payment"]
-        Channel["internal/channel<br/>暂未接入"]
+        Channel["internal/channel"]
+        Admin["internal/admin<br/>凭证数据结构"]
+        Securebox["internal/securebox"]
+        SQLite["internal/storage/sqlite"]
     end
 
     Main --> App
@@ -63,13 +68,17 @@ flowchart TB
     Registry --> Payment
     Alipaycode --> Registry
     Alipaycode --> Payment
+    Channel --> Securebox
+    SQLite --> Admin
+    SQLite --> Channel
+    SQLite --> Securebox
 ```
 
 构建流程先扫描插件目录生成 builtin/registry_gen.go，再编译服务。app 仅依赖生成装配包；插件只依赖契约，不能反向依赖装配包。生成器不是运行时模块，不随服务启动执行。
 
 目标依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
 
-后续按真实功能引入 `internal/admin`（单管理员身份与会话）、`internal/notification`（通知投递）与用例/worker 实现。当前不为尚未实现的功能创建空包。
+后续在 `internal/admin` 中接入单管理员身份与会话用例，并按实际需要引入 `internal/notification`（通知投递）及 worker。当前不为尚未实现的功能创建空包。
 
 ## 目标运行架构
 
@@ -92,7 +101,7 @@ flowchart TB
         Plugin["alipaycode 插件<br/>已有契约，渠道调用待实现"]
         Poller["账单采集 worker<br/>分页、补查、游标恢复"]
         Confirm["到账匹配与订单确认<br/>账户、方向、金额、流水去重"]
-        Store["SQLite 适配器与事务<br/>已有表结构草案"]
+        Store["SQLite 适配器与事务<br/>迁移与仓储已实现，业务接入待完成"]
         Notify["通知 worker<br/>签名、投递、重试"]
     end
 
@@ -151,9 +160,9 @@ flowchart TB
 
 前台仅查询本系统状态。`return_url` 是浏览器完成后的导航，不作为支付证明，也不影响异步通知结果。
 
-## 数据草案
+## 数据与迁移
 
-`internal/storage/sqlite/schema.sql` 包含 owner、channels、orders、receipts、notification_jobs、poll_checkpoints。核心约束：
+`internal/storage/sqlite/migrations/*.sql` 是唯一可执行结构定义。0001 创建初始表，0002 增加 TOTP 字段、主密钥校验和审计。脚本通过 embed 随程序编译，由 Store.Open 按版本事务执行；旧 schema.sql 已移除。核心约束：
 
 - `owner.id = 1`：唯一管理员。
 - `UNIQUE(pid, out_trade_no)`：业务订单幂等。
@@ -161,7 +170,9 @@ flowchart TB
 - `receipts.matched_trade_no UNIQUE`：首版一笔到账对应一张订单。
 - `notification_jobs.trade_no UNIQUE`：支付事件只创建一项通知任务。
 
-SQL 为评审草案，不是已启用的迁移。正式接入时补齐会话、调用凭证、审计表和迁移版本；不把当前草案直接用于生产初始化。
+迁移记录保存在 schema_migrations，重启不重复执行，遇到未知版本拒绝启动。仓储实现管理员凭证、限流、会话、审计与通道配置存取；动态码周期消费与会话创建原子提交，恢复种子与撤销会话原子提交。支付表目前只有结构，支付业务和调用凭证管理待后续接入。
+
+通道通过 Vault 校验后加密持久化，SQLite 仓储只接收密文。securebox 提供随机 nonce 的 AES-GCM 和用途绑定，VerifyKey 首次保存校验密文并在后续拒绝错误主密钥。
 
 ## 实施顺序
 

@@ -35,3 +35,9 @@ SQL 检查针对数据模型草案，不能证明尚未实现的 Go 数据库适
 配置测试使用临时目录，覆盖工作目录选择、忽略父目录配置、文件缺失、环境变量覆盖、UTF-8 BOM/CRLF、引号/注释、保留字面表达式、重复或错误配置拒绝及错误不泄露值。配置包测试、相关静态检查与主程序构建通过，没有读取或改写用户实际 .env 内容。
 
 仅包含本次 .env 功能的提交快照独立通过 make check、make build 和 make check-generated，未依赖其他未提交业务功能。
+
+## 2026-11-10：SQLite 持久化与加解密独立提交
+
+本次包含 SQLite 驱动依赖、嵌入迁移、管理员/会话/限流仓储、通道密文存储、AES-GCM 加解密与主密钥校验，以及对应测试。Credentials 仅从身份服务中原样抽出为独立数据结构；不包含管理员密码/TOTP 算法、HTTP、CLI 或启动装配。已删除旧 schema.sql，结构以 migrations/*.sql 为准。
+
+验证在独立提交快照与临时数据库上执行，不读写实际收款数据。覆盖迁移与重启、未知版本拒绝、主密钥不匹配、密文篡改与用途绑定、配置留空保留、持久化限流和剩余等待时长。独立快照的 make check（含生成、go vet 和全量 go test）、make build、make check-generated、go mod verify，以及 SQLite 和 securebox 的 go test -race 均通过。使用 Go 1.27.3 和 GOTOOLCHAIN=local。本次未重新执行安全公告扫描。
