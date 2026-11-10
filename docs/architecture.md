@@ -10,6 +10,7 @@
 
 ```text
 cmd/epay                         进程入口、信号、退出码
+cmd/plugin-gen                   构建前插件发现与代码生成（仅构建工具）
 internal/app                     组合根、依赖装配、生命周期
 internal/config                  启动环境配置
 internal/httpapi                 HTTP 路由、输入输出边界
@@ -17,13 +18,14 @@ internal/protocol/zpay           外部协议 DTO 与签名规范
 internal/payment                 订单、金额、到账流水、原子存储契约
 internal/channel                 收款账户与插件实例配置
 internal/plugin                  插件契约、注册表
+internal/plugin/builtin          自动生成的插件装配
 internal/plugin/alipaycode       首个插件骨架
 internal/storage/sqlite          当前只有 SQL 数据模型草案
 ```
 
 ### 当前包依赖图
 
-箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示项目内部依赖。当前 HTTP 层尚未接入支付用例；`internal/channel` 已有模型但暂未被其他包引用。SQLite 目录目前只有 SQL 草案，不计为 Go 包。
+箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。当前 HTTP 层尚未接入支付用例；`internal/channel` 已有模型但暂未被其他包引用。SQLite 目录目前只有 SQL 草案，不计为 Go 包。
 
 ```mermaid
 flowchart TB
@@ -40,6 +42,7 @@ flowchart TB
 
     subgraph Plugins["插件契约与实现"]
         Registry["internal/plugin"]
+        Builtin["internal/plugin/builtin"]
         Alipaycode["internal/plugin/alipaycode"]
     end
 
@@ -53,12 +56,16 @@ flowchart TB
     App --> Config
     App --> Handler
     App --> Registry
-    App --> Alipaycode
+    App --> Builtin
+    Builtin --> Registry
+    Builtin --> Alipaycode
     Handler --> Zpay
     Registry --> Payment
     Alipaycode --> Registry
     Alipaycode --> Payment
 ```
+
+构建流程先扫描插件目录生成 builtin/registry_gen.go，再编译服务。app 仅依赖生成装配包；插件只依赖契约，不能反向依赖装配包。生成器不是运行时模块，不随服务启动执行。
 
 目标依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
 

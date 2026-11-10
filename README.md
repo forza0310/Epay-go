@@ -32,13 +32,15 @@ curl 'http://127.0.0.1:8080/api.php?act=order'
 ## 构建与检查
 
 ```sh
-make build    # bin/epay
-make check    # go vet ./... && go test ./...
+make build    # 自动发现插件，再构建 bin/epay
+make check    # 自动发现插件，再执行 go vet ./... && go test ./...
 ```
 
 Makefile 显式禁用工具链自动切换。直接使用 Go 命令时同样设置 `GOTOOLCHAIN=local`。
 
-仅为签名和金额边界保留两个测试文件；路由及 SQL 草案通过定向冒烟和内存数据库检查验证。具体结果见 [验证记录](docs/verification.md)。
+测试覆盖签名、金额边界和插件自动发现；路由及 SQL 草案通过定向冒烟和内存数据库检查验证。具体结果见 [验证记录](docs/verification.md)。
+
+插件通过构建时自动发现注册。新增或删除 `internal/plugin/<name>/` 插件包后执行 `make build`，无需修改启动代码。生成文件须一并提交；`make check-generated` 可检查是否过期。直接使用 `go build` 前须执行 `make generate`，详细约定见 [插件设计](docs/plugins.md)。
 
 ## 阅读顺序
 
@@ -49,4 +51,4 @@ Makefile 显式禁用工具链自动切换。直接使用 Go 命令时同样设�
 5. [关键设计决策](docs/decisions.md)。
 6. [安全与上线条件](docs/security.md)。
 
-请重点确认：插件随程序发布的方式；单人直收下余额接口的定义；API 格式兼容范围。确认后再按架构文档的阶段实现业务。
+请重点确认：单人直收下余额接口的定义；API 格式兼容范围。确认后再按架构文档的阶段实现业务。

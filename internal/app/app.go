@@ -12,7 +12,7 @@ import (
 	"epay/internal/config"
 	"epay/internal/httpapi"
 	"epay/internal/plugin"
-	"epay/internal/plugin/alipaycode"
+	"epay/internal/plugin/builtin"
 )
 
 // App 持有已装配的服务；依赖通过构造函数传入。
@@ -24,7 +24,7 @@ type App struct {
 
 // Go 没有专门的构造方法语法。New 是一种常用命名惯例，它只是普通函数，名字也可以换成其他名称。
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
-	registry, err := plugin.NewRegistry(alipaycode.New())
+	registry, err := builtin.NewRegistry()
 	if err != nil {
 		return nil, err
 	}
