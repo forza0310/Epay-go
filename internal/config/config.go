@@ -4,16 +4,19 @@ package config
 import (
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 )
 
 // Config 是启动配置，默认仅监听本机。
 type Config struct{ Addr string }
 
-// Load 从环境读取配置并在启动前验证监听地址。
+// Load 合并工作目录 .env 与进程环境，并在启动前验证监听地址。
 func Load() (Config, error) {
-	addr := os.Getenv("EPAY_ADDR")
+	values, err := readEnvironment()
+	if err != nil {
+		return Config{}, err
+	}
+	addr := values.get("EPAY_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
