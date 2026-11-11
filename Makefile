@@ -1,6 +1,6 @@
 export GOTOOLCHAIN := local
 
-.PHONY: generate check-generated build run check
+.PHONY: generate check-generated build run playground check
 
 generate:
 	go run ./cmd/plugin-gen
@@ -13,6 +13,9 @@ build: generate
 
 run: generate
 	go run ./cmd/epay
+
+playground:
+	go run ./playground
 
 check: generate
 	go vet ./...

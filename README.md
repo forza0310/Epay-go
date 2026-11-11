@@ -68,6 +68,19 @@ EPAY_ADDR=127.0.0.1:8080 EPAY_COOKIE_SECURE=false ./bin/epay
 
 备份时停止服务再复制完整数据目录，或使用 SQLite 在线备份工具；不要在 WAL 写入期间只复制 `.db` 文件。恢复需配套的 `data/master.key`，自定义数据库路径时也要备份该文件。密钥与默认数据库同目录，整个 data 目录泄漏即可解密敏感数据，备份应限制访问。密钥轮换工具和备份自动化不在本阶段。
 
+## 手动实验代码
+
+`playground/` 用于自己编写和直接运行实验代码。修改 `playground/main.go` 的 `main()` 函数后，在项目根目录执行：
+
+```sh
+GOTOOLCHAIN=local go run ./playground
+# 或：make playground
+```
+
+VS Code 可选择“epay（本地 HTTP）”调试主服务，或在打开学习示例时选择“当前 Go 包”；工作目录统一为项目根目录，使用本机 Go 工具链。也可以在 IDEA 中点击 `main()` 旁的运行按钮。该目录属于当前 Go 模块，可以导入项目的 `internal` 包。
+
+同一个示例的辅助文件放在同一目录，使用 `package main`，整个目录只保留一个 `main()`。需要多个独立示例时，各建子目录，例如 `playground/demo/main.go`，通过 `GOTOOLCHAIN=local go run ./playground/demo` 运行。这里是手动执行的程序入口；自动化测试仍使用 `*_test.go` 和 `go test`。
+
 ## 构建与检查
 
 ```sh
