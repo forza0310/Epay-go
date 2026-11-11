@@ -91,6 +91,7 @@ func TestDiscoveryLifecycle(t *testing.T) {
 	}
 	putFixture(t, root, "internal/plugin/builtin/discovery_test.go", `package builtin
         import "testing"
+        // TestRegisteredPlugins 验证生成的注册表实际包含所有发现的插件。
         func TestRegisteredPlugins(t *testing.T) {
             r,err:=NewRegistry()
             if err!=nil { t.Fatal(err) }
@@ -171,6 +172,7 @@ func TestInvalidPluginsFailClearly(t *testing.T) {
 		}
 		putFixture(t, root, "internal/plugin/builtin/discovery_test.go", `package builtin
             import("strings";"testing")
+            // TestDuplicate 验证重复插件 ID 在构造注册表时被拒绝。
             func TestDuplicate(t *testing.T){_,err:=NewRegistry();if err==nil||!strings.Contains(err.Error(),"duplicate"){t.Fatalf("expected duplicate error, got %v",err)}}
         `)
 		if _, err := goOutput(root, "test", "./internal/plugin/builtin"); err != nil {
