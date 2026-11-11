@@ -138,3 +138,29 @@ func TestPersistentRateLimits(t *testing.T) {
 		t.Fatalf("global limit bypassed: wait=%v, err=%v", wait, err)
 	}
 }
+
+// TestRequiresOriginalKey 验证新数据库允许生成主密钥，保存校验记录后即使重启也必须使用原密钥。
+func TestRequiresOriginalKey(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "data", "epay.db")
+	store, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { store.Close() }()
+	if required, err := store.RequiresKey(ctx); err != nil || required {
+		t.Fatal("new database requires old key", err)
+	}
+	box, _ := securebox.New([]byte("01234567890123456789012345678901"))
+	if err := store.VerifyKey(ctx, box); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	store, err = sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if required, err := store.RequiresKey(ctx); err != nil || !required {
+		t.Fatal("key binding lost after restart", err)
+	}
+}

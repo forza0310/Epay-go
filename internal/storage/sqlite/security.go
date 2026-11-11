@@ -32,3 +32,11 @@ func (s *Store) VerifyKey(ctx context.Context, box *securebox.Box) error {
 	}
 	return nil
 }
+
+// RequiresKey 检查数据库是否已有主密钥校验记录、管理员或通道。
+// 存在任意一种记录时，调用方必须读取原主密钥，不能自动生成替代密钥。
+func (s *Store) RequiresKey(ctx context.Context) (bool, error) {
+	var required bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM security_state) OR EXISTS(SELECT 1 FROM owner) OR EXISTS(SELECT 1 FROM channels)`).Scan(&required)
+	return required, err
+}

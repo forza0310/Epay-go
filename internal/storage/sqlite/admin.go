@@ -1,4 +1,5 @@
-// 本文件持久化管理员凭证、限流和会话；动态码消费与会话创建在同一事务中。
+// 本文件持久化管理员凭证、限流和会话。
+
 package sqlite
 
 import (
@@ -52,6 +53,7 @@ func (s *Store) ResetTOTP(ctx context.Context, expected admin.Credentials, ciphe
 		return false, err
 	}
 	defer tx.Rollback()
+	// 乐观并发控制：先读取和验证，写入时再确认相关数据没有变化。【“验证密码”和“更新数据库”不是同一瞬间完成的】
 	result, err := tx.ExecContext(ctx, `UPDATE owner SET totp_ciphertext=?,last_totp_step=? WHERE id=1 AND password_hash=? AND totp_ciphertext IS ?`, ciphertext, step, expected.PasswordHash, expected.TOTPCiphertext)
 	if err != nil {
 		return false, err
@@ -63,6 +65,7 @@ func (s *Store) ResetTOTP(ctx context.Context, expected admin.Credentials, ciphe
 	if n != 1 {
 		return false, nil
 	}
+	// 删除登录会话并记录reset事件
 	if _, err = tx.ExecContext(ctx, `DELETE FROM admin_sessions`); err != nil {
 		return false, err
 	}
