@@ -2,17 +2,46 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strings"
 
+	"epay/internal/admin"
+	"epay/internal/channel"
 	"epay/internal/protocol/zpay"
+	"epay/internal/securebox"
 )
 
-// Handler 当前提供可运行的协议骨架；业务尚未接入，不能用于实际收款。
-type Handler struct{}
+// Handler 装配管理员后台与支付协议占位入口，目前不能用于实际收款。
+type Handler struct {
+	admin        *admin.Service
+	cookieSecure bool
+	vault        *channel.Vault
+	pluginIDs    []string
+	loginKey     [32]byte
+	setupBox     *securebox.Box
+	logger       *slog.Logger
+}
 
 // NewHandler 创建 HTTP 请求处理器，具体路由由 Routes 注册。
-func NewHandler() *Handler { return &Handler{} }
+func NewHandler(service *admin.Service, vault *channel.Vault, pluginIDs []string, secure bool, logger *slog.Logger) (*Handler, error) {
+	h := &Handler{admin: service, vault: vault, pluginIDs: append([]string(nil), pluginIDs...), cookieSecure: secure, logger: logger}
+	if _, err := rand.Read(h.loginKey[:]); err != nil {
+		return nil, err
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	var err error
+	h.setupBox, err = securebox.New(key)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
 
 // Routes 注册各接口及允许的 HTTP 方法，并为所有请求添加响应头和请求体大小限制。
 func (h *Handler) Routes() http.Handler {
@@ -24,7 +53,19 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /mapi.php", h.apiPay)
 	mux.HandleFunc("GET /api.php", h.api)
 	mux.HandleFunc("POST /api.php", h.api)
-	mux.HandleFunc("GET /admin/{$}", h.admin)
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/admin/login", http.StatusSeeOther) })
+	mux.HandleFunc("GET /admin/setup", h.setupPage)
+	mux.HandleFunc("GET /admin/setup/qr.png", h.setupQRCode)
+	mux.HandleFunc("POST /admin/setup", h.setup)
+	mux.HandleFunc("GET /admin/login", h.loginPage)
+	mux.HandleFunc("POST /admin/login", h.login)
+
+	// 后台业务统一经过登录检查，再接收已验证的会话。
+	mux.HandleFunc("GET /admin/{$}", h.requireLogin(h.adminPage))
+	mux.HandleFunc("POST /admin/logout", h.requireLogin(h.logout))
+	mux.HandleFunc("GET /admin/channels/new", h.requireLogin(h.channelPage))
+	mux.HandleFunc("GET /admin/channels/{id}", h.requireLogin(h.channelPage))
+	mux.HandleFunc("POST /admin/channels", h.requireLogin(h.saveChannel))
 	return safetyHeaders(mux)
 }
 
@@ -38,7 +79,7 @@ func (_ *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	// value  是 ""
 	// exists 是 false
 	// 这是 Go 很常见的 “值 + 是否存在” 写法。存在但值恰好是 ""，与根本不存在，就能区分开了
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "stage": "scaffold"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "stage": "admin_foundation"})
 }
 
 // ready 在支付功能尚未完成时返回未就绪状态，避免将服务启动误认为已经能够收款。
@@ -58,7 +99,9 @@ func (_ *Handler) apiPay(w http.ResponseWriter, _ *http.Request) {
 
 // api 检查 act 参数并选择对应处理分支；当前查询与退款功能尚未实现，不读取或记录调用密钥。
 func (_ *Handler) api(w http.ResponseWriter, r *http.Request) {
-	actions := r.URL.Query()["act"]
+	actions := r.URL.Query()["act"] // map[string][]string 这个参数出现过的所有值
+	// []string 读作“字符串 slice”，它是一种可变长度的序列值，引用底层数组的一段或全部元素，它像是指针。
+	// [2]string 读作“字符串数组”，长度固定，赋值会复制元素；数组的长度是类型的一部分。
 	if len(actions) != 1 {
 		writeError(w, http.StatusBadRequest, "必须提供唯一 act 参数")
 		return
@@ -68,21 +111,17 @@ func (_ *Handler) api(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "查询接口仅支持 GET")
 		return
 	}
+	// go 的 switch 不会贯穿到下一个 case，通常不需要 break
 	switch actions[0] {
 	case "order":
 		notImplemented(w, "订单查询尚未实现")
 	case "balance":
-		notImplemented(w, "余额查询尚未实现，余额语义待确认")
+		writeError(w, http.StatusNotImplemented, "act=balance 暂不支持")
 	case "refund":
 		notImplemented(w, "当前版本不提供退款功能")
 	default:
 		writeError(w, http.StatusBadRequest, "不支持的 act")
 	}
-}
-
-// admin 处理后台入口请求；当前后台尚未接入，返回明确的错误响应。
-func (_ *Handler) admin(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "管理员后台尚未实现")
 }
 
 // notImplemented 以 HTTP 501 告知调用方该功能尚未实现。
@@ -119,7 +158,12 @@ func safetyHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		// no-referrer 会让浏览器普通表单的 Origin 变成 null，导致同源校验误拒绝。
+		// 后台仅允许向同源发送 Referer；支付协议入口继续隐藏来源中的查询凭证。
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			w.Header().Set("Referrer-Policy", "same-origin")
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		next.ServeHTTP(w, r)
 	})

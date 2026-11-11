@@ -15,7 +15,7 @@ type PayResponse struct {
 	Message string `json:"msg"`
 	OrderID string `json:"O_id"`
 	TradeNo string `json:"trade_no"`
-	PayURL  string `json:"payurl,omitempty"`
+	PayURL  string `json:"payurl,omitempty"` // omitempty：转成json编码时可以省略空字段【string的空就是""】
 	PayURL2 string `json:"payurl2,omitempty"`
 	QRCode  string `json:"qrcode,omitempty"`
 	Image   string `json:"img,omitempty"`
@@ -38,7 +38,7 @@ type OrderResponse struct {
 	Buyer      string `json:"buyer"`
 }
 
-// BalanceResponse 的业务含义尚待确认，不将累计收款金额冒充可用余额。
+// BalanceResponse 仅记录外部协议结构；本系统不实现余额接口。
 type BalanceResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"msg"`

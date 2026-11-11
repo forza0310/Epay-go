@@ -1,6 +1,6 @@
 # 架构与数据流程
 
-状态：框架、SQLite 持久化、加密和管理员服务已实现；HTTP 管理入口与支付业务另行接入。技术选型为 Go 标准库 HTTP、单实例 SQLite 和可信编译式插件。
+状态：第一步运行与管理员基础已接入，正在验收；支付业务按后续阶段推进。采用 Go 标准库 HTTP、单实例 SQLite 和可信编译式插件。
 
 管理员服务的职责、安全规则与验证范围见 [管理员服务](admin.md)。
 
@@ -18,18 +18,18 @@ internal/config                  启动环境配置
 internal/httpapi                 HTTP 路由、输入输出边界
 internal/protocol/zpay           外部协议 DTO 与签名规范
 internal/payment                 订单、金额、到账流水、原子存储契约
-internal/channel                 收款账户与插件实例配置加密
-internal/securebox               AES-GCM 加解密
-internal/admin                   管理员初始化、双因素认证与会话
+internal/channel                 收款账户与插件实例配置
+internal/securebox               AES-GCM 用途隔离加密、主密钥文件
+internal/admin                   单管理员密码、TOTP、会话与 CSRF 服务
 internal/plugin                  插件契约、注册表
 internal/plugin/builtin          自动生成的插件装配
 internal/plugin/alipaycode       首个插件骨架
-internal/storage/sqlite          连接、迁移、管理员及通道仓储
+internal/storage/sqlite          SQLite 连接、版本迁移和存储适配器
 ```
 
 ### 当前包依赖图
 
-箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。HTTP 与启动装配尚未接入持久化模块。SQLite 依赖管理员凭证及通道模型，管理员服务通过仓储接口读写数据，HTTP 管理另行接入。
+箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。当前 HTTP 层已接入管理员与通道服务，支付用例仍未接入。存储适配器实现领域包定义的接口，领域服务不依赖具体 SQLite 实现。
 
 ```mermaid
 flowchart TB
@@ -53,20 +53,30 @@ flowchart TB
     subgraph Domain["领域模型与存储契约"]
         Payment["internal/payment"]
         Channel["internal/channel"]
-        Admin["internal/admin<br/>身份与会话服务"]
+        Admin["internal/admin"]
         Securebox["internal/securebox"]
         SQLite["internal/storage/sqlite"]
     end
 
     Main --> App
     Main --> Config
+    Main --> Admin
+    Main --> SQLite
+    Main --> Securebox
     App --> Config
     App --> Handler
+    App --> Admin
+    App --> Channel
+    App --> SQLite
+    App --> Securebox
     App --> Registry
     App --> Builtin
     Builtin --> Registry
     Builtin --> Alipaycode
     Handler --> Zpay
+    Handler --> Admin
+    Handler --> Channel
+    Handler --> Securebox
     Registry --> Payment
     Alipaycode --> Registry
     Alipaycode --> Payment
@@ -81,11 +91,37 @@ flowchart TB
 
 目标依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
 
-`internal/admin` 已提供单管理员身份与会话用例，后续接入 HTTP 与启动装配，并按实际需要引入 `internal/notification`（通知投递）及 worker。当前不为尚未实现的功能创建空包。
+后续按真实功能引入 `internal/notification`（通知投递）与用例/worker 实现。`internal/admin` 提供双因素身份与会话；`internal/channel` 提供配置加密服务；管理员通道页面已接入。HTTP 中按协议路由、登录与表单、鉴权中间件、通道管理、模板分文件，SQLite 中按迁移、认证、通道、主密钥校验分文件。当前不为尚未实现的功能创建空包。
+
+## 后台请求的登录检查
+
+后台首页、通道管理和退出登录的处理函数使用 adminHandler 类型，显式接收 adminSession。Routes 注册这些接口时统一使用 requireLogin 包装；中间件调用 authenticate 检查会话和 CSRF Cookie，失败时结束请求，成功后才将会话交给业务处理函数。普通 HandleFunc 无法直接接收此类型，避免受保护函数漏包装后仍能编译。
+
+保存通道和退出登录仍在处理函数中调用 parseForm 与 checkCSRF，检查来源及表单令牌。登录、首次初始化和健康检查使用各自的公开访问规则；支付占位接口保持明确失败。新增管理员接口须采用 adminHandler，不能将普通签名误当作自动受保护。
+
+## 首次启动与初始化
+
+config 仅加载非敏感运行配置。app 打开并迁移 SQLite，查询 RequiresKey，交给 securebox 从工作目录 data/master.key 加载主密钥；仅全新加密状态允许自动生成。密钥完整落盘后 VerifyKey 绑定数据库，最后装配身份服务与 HTTP。命令行仅保留 reset-totp 恢复功能，共用此密钥文件。
+
+```mermaid
+flowchart TD
+    Start["启动并迁移 SQLite"] --> State{"数据库是否已有加密状态？"}
+    State -->|有| Read["读取原 data/master.key；缺失则失败"]
+    State -->|无| Create["读取或安全生成 data/master.key"]
+    Read --> Verify["校验主密钥与数据库绑定"]
+    Create --> Verify
+    Verify --> Owner{"管理员已存在？"}
+    Owner -->|否| Setup["网页设置密码、绑定并验证 TOTP"]
+    Setup --> Atomic["事务创建唯一管理员；关闭初始化入口"]
+    Atomic --> Login["密码与动态码登录"]
+    Owner -->|是| Login
+```
+
+初始化 HTTP 边界复用同源检查与 CSRF；待绑定种子使用独立进程密钥加密 Cookie 保存，绑定十分钟有效期。初始化页通过同源图片入口在服务端生成标准 otpauth 绑定二维码，图片与手工密钥使用同一个 Cookie 中的种子，响应禁止缓存；创建成功后图片入口关闭。网页不回显主密钥，密码不进入 Cookie。管理员创建仍调用 admin.Initialize，SQLite 保证唯一性与审计原子写入。远程初始化不要求安装凭证，这是用户确认的部署选择；远程部署使用 HTTPS。
 
 ## 目标运行架构
 
-下图表示计划中的调用与数据流，箭头不表示 Go 的 import 关系。虚线框模块尚未完成业务实现；目前只有进程装配、HTTP 骨架、协议基础能力和插件注册可运行。付款人是外部支付参与者，不是系统新增的用户角色。
+下图表示计划中的调用与数据流，箭头不表示 Go 的 import 关系。虚线框模块尚未完成业务实现；管理员、加密配置和 SQLite 已可运行；支付相关方框仍属计划。付款人是外部支付参与者，不是系统新增的用户角色。
 
 ```mermaid
 flowchart TB
@@ -96,15 +132,15 @@ flowchart TB
     Database[("SQLite 数据文件")]
 
     subgraph Process["epay 单进程"]
-        Admin["管理员后台与会话<br/>服务已实现，HTTP 待接入"]
+        Admin["管理员后台与会话<br/>密码 + TOTP，已实现"]
         API["ZPAY 兼容入口<br/>已有路由，业务待接入"]
         Checkout["收银台与状态查询<br/>待实现"]
         Usecase["支付用例<br/>验签、幂等建单、订单查询"]
-        ChannelConfig["通道配置<br/>账户选择与凭证解密"]
+        ChannelConfig["通道配置<br/>配置管理与凭证加密，已实现"]
         Plugin["alipaycode 插件<br/>已有契约，渠道调用待实现"]
         Poller["账单采集 worker<br/>分页、补查、游标恢复"]
         Confirm["到账匹配与订单确认<br/>账户、方向、金额、流水去重"]
-        Store["SQLite 适配器与事务<br/>迁移与仓储已实现，业务接入待完成"]
+        Store["SQLite 适配器与事务<br/>迁移与管理员/通道存储已实现"]
         Notify["通知 worker<br/>签名、投递、重试"]
     end
 
@@ -131,7 +167,7 @@ flowchart TB
     Store --> Database
 
     classDef planned fill:#fff7ed,stroke:#b45309,stroke-width:1px,stroke-dasharray:5 5;
-    class Admin,API,Checkout,Usecase,ChannelConfig,Plugin,Poller,Confirm,Store,Notify planned;
+    class API,Checkout,Usecase,Plugin,Poller,Confirm,Notify planned;
 ```
 
 运行边界：HTTP 服务、采集任务和通知任务共享一个进程；插件是进程内的可信实现。数据库事务只覆盖本地持久化，支付宝查询和业务通知均在事务之外执行。图中的 worker 和用例是逻辑职责，具体分包随实现确定，不要求每个方框创建一个包。
@@ -165,7 +201,7 @@ flowchart TB
 
 ## 数据与迁移
 
-`internal/storage/sqlite/migrations/*.sql` 是唯一可执行结构定义。0001 创建初始表，0002 增加 TOTP 字段、主密钥校验和审计。脚本通过 embed 随程序编译，由 Store.Open 按版本事务执行；旧 schema.sql 已移除。核心约束：
+`internal/storage/sqlite/migrations/*.sql` 是唯一可执行结构定义，使用 embed 随程序发布。迁移逐版本事务提交，应用记录写入 schema_migrations；重启不重复执行，未知版本拒绝启动。已包含 owner、admin_sessions、admin_login_attempts、channels、security_state、audit_events，以及后续支付表。核心约束：
 
 - `owner.id = 1`：唯一管理员。
 - `UNIQUE(pid, out_trade_no)`：业务订单幂等。
@@ -173,16 +209,19 @@ flowchart TB
 - `receipts.matched_trade_no UNIQUE`：首版一笔到账对应一张订单。
 - `notification_jobs.trade_no UNIQUE`：支付事件只创建一项通知任务。
 
-迁移记录保存在 schema_migrations，重启不重复执行，遇到未知版本拒绝启动。仓储实现管理员凭证、限流、会话、审计与通道配置存取；动态码周期消费与会话创建原子提交，恢复种子与撤销会话原子提交。支付表目前只有结构，支付业务和调用凭证管理待后续接入。
+0002 迁移为已有管理员增加 TOTP 字段并撤销历史单因素会话；旧记录未绑定 TOTP 时无法登录，须本地 reset-totp 完成绑定。支付表当前只有结构，没有相应业务用例。迁移脚本发布后不改写，使用新增版本推进；当前无自动回滚或多实例迁移协调。
 
-通道通过 Vault 校验后加密持久化，SQLite 仓储只接收密文。securebox 提供随机 nonce 的 AES-GCM 和用途绑定，VerifyKey 首次保存校验密文并在后续拒绝错误主密钥。
+身份认证先执行持久化限流，再验证密码、解密 TOTP 种子并校验动态码；条件更新 last_totp_step 与会话创建在同一事务内，保证并发请求最多一个成功。重置种子与撤销所有会话原子提交。
+
+通道 JSON 通过 Vault 校验并加密，仓储仅接触密文。列表和编辑页只读取元数据；留空更新在 SQL 中保留密文，不做“读旧值再覆盖”的更新。主密钥校验值在启动时验证，防止错误密钥静默运行。安全事件只记录操作类型、对象 ID 与时间，不记录凭证。
 
 ## 实施顺序
 
-1. 当前阶段：框架、工程规范、协议和领域边界；用户确认。
-2. 接入 SQLite、单管理员初始化/登录/会话、密钥加密管理。
-3. 实现 ZPAY 鉴权、下单幂等、订单查询、收银台和 alipaycode 签名客户端。
-4. 实现账单补查、事务确认、通知 outbox、异常订单管理。
-5. 联调与上线验证：恢复能力、重复到账、权限、备份、依赖安全检查。
+1. 当前第一步：SQLite、单管理员初始化、密码与 TOTP 登录、会话、配置加密与最小后台；完成后等待确认。
+2. ZPAY 验签、订单幂等、`/submit.php`、`/mapi.php` 和 `act=order`；余额和退款继续明确失败。
+3. alipaycode 付款入口、账单轮询、流水去重及原子确认。
+4. 通知持久化重试、收银台状态页、异常到账与恢复验证。
+
+遇到决策疑问立即停止提问；每步交付审核后才开始下一步。
 
 不再研究支付宝应用能否开通；按用户已确认可用的前提开发。真实账户联调只在业务实现阶段按授权进行。

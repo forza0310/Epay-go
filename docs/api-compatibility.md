@@ -9,13 +9,13 @@
 | GET/POST `/submit.php` | 验签、幂等建单、跳转收银台 | 路由存在，HTTP 501 |
 | POST `/mapi.php` | 建单并返回付款动作 | 路由存在，HTTP 501 |
 | GET `/api.php?act=order` | 按系统单号或业务单号查询 | 路由存在，HTTP 501 |
-| GET `/api.php?act=balance` | 保留余额查询契约，业务语义待确认 | 路由存在，HTTP 501 |
+| GET `/api.php?act=balance` | 不提供平台余额能力 | 路由存在，HTTP 501，返回错误 |
 | 支付结果 `notify_url` | 服务端签名 GET 通知及重试 | 仅设计，未发送 |
 | 完成跳转 `return_url` | 浏览器签名 GET 跳转 | 仅设计，未跳转 |
 | POST `/api.php?act=refund` | 本阶段明确不支持退款 | HTTP 501 |
 | ZPAY 微信小程序 | 属于 ZPAY 自有 appid/订单体系 | 不实现，不伪装兼容 |
 
-`/healthz` 返回 200 仅代表进程存活；`/readyz` 保持 503。后台 `/admin/` 尚未开放，返回 501。
+`/healthz` 返回 200 仅代表进程存活；`/readyz` 保持 503。后台 `/admin/` 已开放，仅持有双因素认证会话的管理员可访问。
 
 ## 下单字段
 
@@ -37,7 +37,7 @@
 
 POST 同时支持 `multipart/form-data`（文档要求）及 `application/x-www-form-urlencoded`（常见客户端兼容）。拒绝文件上传、重复参数及在 URL 与 POST 中重复提供业务字段。表单解析前限制请求体；验签前只进行一次标准 URL/form 解码。
 
-输入校验、请求鉴权和以上表单解析尚未接入 HTTP 层。当前所有合法路由均先明确返回未实现，不接收真实订单。
+支付接口的输入校验、请求鉴权和以上表单解析尚未接入 HTTP 层。当前支付入口返回未实现或参数错误，不接收真实订单。
 
 ## 响应约定与文档差异
 
@@ -48,13 +48,13 @@ POST 同时支持 `multipart/form-data`（文档要求）及 `application/x-www-
 - 文档下单的 pid 为字母数字 String，但查询返回表写 Int。设计统一返回字符串，保护长 ID 和非数字 PID；与强制数字 PID 的旧客户端存在差异，联调时确认。
 - 订单查询状态：已支付映射 `status=1`；待支付、过期、关闭映射 `0`。`buyer` 缺省为空，`param` 原样返回。
 - 两个查询订单号至少传一个；同时传入时必须指向同一订单，不能忽略冲突参数。
-- `act=order/balance` 按文档使用 `pid/key` 验证。HTTPS 必须启用；应用及代理访问日志均须屏蔽 key 和完整查询字符串。
+- `act=order` 将按文档使用 `pid/key` 验证；`act=balance` 直接返回不支持错误。HTTPS 必须启用；应用及代理访问日志均须屏蔽 key 和完整查询字符串。
 
-## 余额接口待确认
+## 余额接口
 
 ZPAY 文档定义的是“ZPAY 平台账户余额”。本系统的款项直接进入个人支付宝，没有平台余额。
 
-建议后续定义 `balance="0.00"` 表示系统未托管资金，并在兼容说明中明确；如果用户希望查询真实支付宝余额，应做渠道级余额能力，定义多账户选择与权限后再实现。不能用累计到账金额替代余额。**当前不返回假余额，返回 501，待用户确认语义。**
+本系统不托管 ZPAY 平台余额，`act=balance` 不实现；调用时返回 HTTP 501 和错误消息 `act=balance 暂不支持`。不能用累计到账金额冒充余额，也不调用支付宝余额接口替代该协议语义。
 
 ## 签名（已实现）
 
@@ -72,3 +72,19 @@ GET 参数：`pid,name,money,out_trade_no,trade_no,param,trade_status,type,sign,
 单次请求超时 5 秒。按文档的相邻重试间隔 `0/15/15/30/180/1800/1800/1800/1800/3600` 秒调度。兼容文档约定：HTTP 成功响应的有限长度响应体包含 `success` 时确认送达；否则继续重试。达到上限后标记 exhausted，供管理员查看。
 
 通知目标必须预登记，生产使用 HTTPS，DNS/IP 和重定向限制见安全文档。浏览器 return_url 与服务端 notify_url 使用各自的地址策略，不能混用信任边界。
+
+## 管理后台（本系统自有接口）
+
+| 路由 | 行为 | 保护 |
+|---|---|---|
+| GET `/admin/setup` | 首次初始化表单 | 仅管理员尚未创建时开放 |
+| POST `/admin/setup` | 设置密码并验证 TOTP 绑定 | 初始化 Cookie、表单 CSRF、来源检查、唯一管理员约束 |
+| GET `/admin/setup/qr.png` | TOTP 绑定二维码 | 有效初始化 Cookie、同源访问、不缓存；管理员创建后关闭 |
+| GET/POST `/admin/login` | 登录表单 / 密码与动态码登录 | 签名双提交 CSRF、来源检查、持久化限流 |
+| GET `/admin/` | 通道列表 | 双因素会话 |
+| GET `/admin/channels/new` | 新建表单 | 双因素会话 |
+| GET `/admin/channels/{id}` | 编辑元数据，配置不回显 | 双因素会话 |
+| POST `/admin/channels` | 新建或修改/启停通道 | 会话、会话绑定 CSRF、来源检查 |
+| POST `/admin/logout` | 撤销当前会话 | 会话、会话绑定 CSRF |
+
+后台 POST 仅接受 `application/x-www-form-urlencoded`，禁止查询参数、重复字段和未知字段；请求体上限 64 KiB，插件 JSON 上限 32 KiB。业务失败不回显请求配置。密码错误与动态码错误合并提示；限流返回 429，页面单独显示本次请求时需等待的分钟/秒数，Retry-After 与页面时长一致，等待后须刷新登录页获取新表单；未登录管理页跳转到登录页。这些接口不属于 ZPAY 协议，不接受 PID/key 作为管理员凭证。
