@@ -10,7 +10,7 @@ import (
 	"io"
 )
 
-// Box 是使用部署外置 256-bit 主密钥创建的不可变加密器。
+// Box 是使用调用方提供的 256-bit 密钥创建的不可变加密器。
 type Box struct{ aead cipher.AEAD }
 
 // New 使用 32 字节密钥创建 AES-GCM 加解密器；密钥长度不符时返回错误。
