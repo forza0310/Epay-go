@@ -9,7 +9,8 @@ import (
 	"epay/internal/securebox"
 )
 
-// VerifyKey 首次记录认证密文，后续每次启动必须能解密它。
+// VerifyKey 首次保存用当前主密钥加密的校验文本，后续启动时用主密钥解密并核对该文本。
+// 解密失败或内容不符时返回错误，已有校验密文不会被覆盖。
 func (s *Store) VerifyKey(ctx context.Context, box *securebox.Box) error {
 	value, err := box.Seal("system:master-key", []byte("epay-key-check-v1"))
 	if err != nil {

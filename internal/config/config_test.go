@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// clearConfigEnvironment 暂时清除相关环境变量，避免本机配置影响测试；测试结束后自动恢复。
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"EPAY_ADDR", "EPAY_DB_PATH", "EPAY_MASTER_KEY", "EPAY_COOKIE_SECURE"} {
@@ -19,6 +20,7 @@ func clearConfigEnvironment(t *testing.T) {
 	}
 }
 
+// writeConfigFixture 创建权限为 0600 的临时配置文件，供配置加载测试使用。
 func writeConfigFixture(t *testing.T, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(name, []byte(content), 0600); err != nil {
@@ -26,7 +28,7 @@ func writeConfigFixture(t *testing.T, name, content string) {
 	}
 }
 
-// TestDotEnvWorkingDirectoryAndPrecedence 验证只读取工作目录的 .env，已有环境变量优先且加载不修改进程环境。
+// TestDotEnvWorkingDirectoryAndPrecedence 验证只读取工作目录中的 .env，已有环境变量优先，且加载配置不会修改进程环境变量。
 func TestDotEnvWorkingDirectoryAndPrecedence(t *testing.T) {
 	clearConfigEnvironment(t)
 	root := t.TempDir()
@@ -66,7 +68,7 @@ func TestDotEnvWorkingDirectoryAndPrecedence(t *testing.T) {
 	}
 }
 
-// TestDotEnvAbsentDoesNotSearchParents 验证工作目录缺少 .env 时保留默认配置，不读取父目录中的文件。
+// TestDotEnvAbsentDoesNotSearchParents 验证工作目录没有 .env 时使用默认配置，不会转而读取父目录的文件。
 func TestDotEnvAbsentDoesNotSearchParents(t *testing.T) {
 	clearConfigEnvironment(t)
 	// 提供独立的环境配置，避免此加载器测试依赖其他功能所需的文件配置。
@@ -94,7 +96,7 @@ func TestDotEnvAbsentDoesNotSearchParents(t *testing.T) {
 	}
 }
 
-// TestDotEnvSafeValuesAndErrors 验证配置值的安全解析，并拒绝非法内容且不在错误信息中泄露配置值。
+// TestDotEnvSafeValuesAndErrors 验证引号和注释等配置语法能正确解析，错误配置会被拒绝，且报错不会泄露配置值。
 func TestDotEnvSafeValuesAndErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeConfigFixture(t, "go.mod", "module fixture\n")

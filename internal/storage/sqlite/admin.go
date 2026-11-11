@@ -10,7 +10,7 @@ import (
 	"epay/internal/admin"
 )
 
-// Credentials 读取唯一管理员；不存在与存储错误分别返回。
+// Credentials 读取管理员的密码哈希、加密的 TOTP 绑定密钥和已用动态码周期，并返回管理员是否存在。
 func (s *Store) Credentials(ctx context.Context) (admin.Credentials, bool, error) {
 	var c admin.Credentials
 	err := s.db.QueryRowContext(ctx, `SELECT password_hash, totp_ciphertext, last_totp_step FROM owner WHERE id=1`).Scan(&c.PasswordHash, &c.TOTPCiphertext, &c.LastTOTPStep)
@@ -20,7 +20,7 @@ func (s *Store) Credentials(ctx context.Context) (admin.Credentials, bool, error
 	return c, err == nil, err
 }
 
-// CreateAdministrator 只初始化一次，记录初始化审计事件。
+// CreateAdministrator 在同一事务中创建管理员并记录初始化事件；管理员已存在时不覆盖，返回 false。
 func (s *Store) CreateAdministrator(ctx context.Context, c admin.Credentials, now time.Time) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -44,7 +44,8 @@ func (s *Store) CreateAdministrator(ctx context.Context, c admin.Credentials, no
 	return true, tx.Commit()
 }
 
-// ResetTOTP 替换种子时验证凭证未变更，并原子撤销所有旧会话。
+// ResetTOTP 在同一事务中更新验证器绑定、删除旧登录会话并记录重置事件。
+// 如果密码或旧绑定已被其他操作修改，则不执行更新。
 func (s *Store) ResetTOTP(ctx context.Context, expected admin.Credentials, ciphertext []byte, step int64, now time.Time) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -71,7 +72,8 @@ func (s *Store) ResetTOTP(ctx context.Context, expected admin.Credentials, ciphe
 	return true, tx.Commit()
 }
 
-// CommitLogin 以条件更新消费动态码；重放、并发登录和种子重置竞态均不能绕过校验。
+// CommitLogin 在同一事务中记录动态码已使用、保存登录会话、清除当前来源的尝试计数并记录登录事件。
+// 如果密码或验证器绑定已变化，或该动态码周期已被使用，则拒绝创建会话。
 func (s *Store) CommitLogin(ctx context.Context, c admin.Credentials, step int64, tokenHash, csrfHash []byte, now, expires time.Time, remote string) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -101,7 +103,8 @@ func (s *Store) CommitLogin(ctx context.Context, c admin.Credentials, step int64
 	return true, tx.Commit()
 }
 
-// ReserveLoginAttempt 持久化来源与账户限流，并返回剩余等待时间；不信任代理头。
+// ReserveLoginAttempt 记录本次登录尝试，并检查当前来源和全账户的尝试次数。
+// 达到限制时拒绝登录并返回还需等待的时长；计数和限制在重启后仍保留。
 func (s *Store) ReserveLoginAttempt(ctx context.Context, remote string, now time.Time) (bool, time.Duration, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -144,7 +147,7 @@ func (s *Store) ReserveLoginAttempt(ctx context.Context, remote string, now time
 	return true, 0, tx.Commit()
 }
 
-// SessionCSRFHash 只返回尚未过期且未撤销的会话凭证。
+// SessionCSRFHash 查询指定会话的 CSRF 令牌哈希；会话不存在或已过期时返回未找到。
 func (s *Store) SessionCSRFHash(ctx context.Context, tokenHash []byte, now time.Time) ([]byte, bool, error) {
 	var hash []byte
 	err := s.db.QueryRowContext(ctx, `SELECT csrf_hash FROM admin_sessions WHERE token_hash=? AND expires_at>?`, tokenHash, now.Unix()).Scan(&hash)
@@ -154,7 +157,7 @@ func (s *Store) SessionCSRFHash(ctx context.Context, tokenHash []byte, now time.
 	return hash, err == nil, err
 }
 
-// DeleteSession 在服务端撤销会话。
+// DeleteSession 在同一事务中删除指定登录会话并记录退出事件，使旧登录令牌失效。
 func (s *Store) DeleteSession(ctx context.Context, hash []byte) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

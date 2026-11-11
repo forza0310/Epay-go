@@ -29,8 +29,11 @@ type Checkout struct {
 
 // Provider 实现插件公共能力；运行配置由核心解密后按调用提供，禁止持久化到日志。
 type Provider interface {
+	// Describe 返回插件标识、支持的支付方式和功能是否已实现。
 	Describe() Descriptor
+	// ValidateConfig 检查传入配置是否符合插件要求，不保存配置。
 	ValidateConfig(json.RawMessage) error
+	// CreatePayment 根据已保存的订单和通道配置生成付款入口；未实现时必须返回错误。
 	CreatePayment(context.Context, json.RawMessage, Checkout) (payment.PaymentAction, error)
 }
 
@@ -49,5 +52,6 @@ type PollResult struct {
 
 // Poller 是账单型插件的可选能力；核心统一负责调度、重试和去重。
 type Poller interface {
+	// Poll 查询指定时间范围和分页位置的到账记录；未实现时必须返回错误。
 	Poll(context.Context, json.RawMessage, PollRequest) (PollResult, error)
 }

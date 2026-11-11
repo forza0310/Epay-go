@@ -32,7 +32,7 @@ const (
 // Store 持有单进程串行使用的 SQLite 连接。
 type Store struct{ db *sql.DB }
 
-// Open 创建私有数据文件，启用安全参数并应用嵌入的迁移。
+// Open 打开数据库，限制数据目录和文件的访问权限，设置连接参数，并执行尚未应用的结构迁移。
 func Open(ctx context.Context, path string) (*Store, error) {
 	// 拒绝空路径，并统一为绝对路径，供后续权限检查和连接配置使用。
 	if strings.TrimSpace(path) == "" {
@@ -101,10 +101,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return store, nil
 }
 
-// Close 释放数据库连接。
+// Close 关闭数据库连接，释放占用的资源。
 func (s *Store) Close() error { return s.db.Close() }
 
-// migrate 按版本顺序事务执行迁移。
+// migrate 按版本顺序执行尚未应用的数据库结构迁移，每个版本单独提交事务。
+// 遇到程序不认识的已执行版本时返回错误，避免旧程序使用新版数据库结构。
 func (s *Store) migrate(ctx context.Context) error {
 	// 创建迁移台账；版本名唯一，applied_at 记录成功应用时的 Unix 秒级时间戳。
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (

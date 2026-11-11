@@ -3,7 +3,7 @@ package securebox
 
 import "testing"
 
-// TestBoxBindsCiphertextToChannel 验证配置可正确解密，并拒绝跨通道复制和篡改后的密文。
+// TestBoxBindsCiphertextToChannel 验证配置可以正常解密，修改密文或将密文复制给其他通道后会解密失败。
 func TestBoxBindsCiphertextToChannel(t *testing.T) {
 	box, err := New([]byte("01234567890123456789012345678901"))
 	if err != nil {

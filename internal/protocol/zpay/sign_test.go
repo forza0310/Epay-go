@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestSignatureContract 用已知签名结果检查 ZPAY 协议兼容性，并验证修改参数、重复参数或无效签名设置会被拒绝。
 func TestSignatureContract(t *testing.T) {
 	// 固定向量由独立 Python hashlib 校验；中文、空格、&、+ 不进行二次编码，0 不被排除。
 	values := url.Values{"b": {"中文 空格&+"}, "a": {"0"}, "empty": {""}, "sign_type": {"MD5"}}

@@ -10,7 +10,7 @@ import (
 	"epay/internal/channel"
 )
 
-// SaveChannel 事务保存通道元数据、密文和不含凭证的审计记录。
+// SaveChannel 在同一事务中新增或更新通道信息、配置密文并记录保存事件；审计记录不包含配置值。
 func (s *Store) SaveChannel(ctx context.Context, id, pluginID, accountID, name string, enabled bool, ciphertext []byte) error {
 	active := 0
 	if enabled {
@@ -34,7 +34,7 @@ func (s *Store) SaveChannel(ctx context.Context, id, pluginID, accountID, name s
 	return tx.Commit()
 }
 
-// LoadChannel 读取密文，不在持久化层解密配置。
+// LoadChannel 读取指定通道的信息和配置密文，不在数据库层解密；通道不存在时返回 ErrNotFound。
 func (s *Store) LoadChannel(ctx context.Context, id string) (pluginID, accountID, name string, enabled bool, ciphertext []byte, err error) {
 	var active int
 	err = s.db.QueryRowContext(ctx, `SELECT plugin_id, account_id, name, enabled, config_ciphertext FROM channels WHERE id = ?`, id).
@@ -45,7 +45,7 @@ func (s *Store) LoadChannel(ctx context.Context, id string) (pluginID, accountID
 	return pluginID, accountID, name, active == 1, ciphertext, err
 }
 
-// ListChannels 返回列表元数据，不读取配置密文。
+// ListChannels 读取按 ID 排序的通道列表，只返回名称、账户和启用状态等信息，不读取配置密文。
 func (s *Store) ListChannels(ctx context.Context) ([]channel.Channel, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id,plugin_id,account_id,name,enabled FROM channels ORDER BY id`)
 	if err != nil {
@@ -63,7 +63,8 @@ func (s *Store) ListChannels(ctx context.Context) ([]channel.Channel, error) {
 	return result, rows.Err()
 }
 
-// UpdateChannelMetadata 原子保留密文；账户或插件变化时要求重新提交完整配置。
+// UpdateChannelMetadata 只更新通道名称和启用状态，保留原配置密文，并在同一事务中记录修改事件。
+// 通道不存在，或账户、插件与已保存的信息不一致时，不执行更新并返回 false。
 func (s *Store) UpdateChannelMetadata(ctx context.Context, c channel.Channel) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

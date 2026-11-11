@@ -12,6 +12,7 @@ import (
 	"epay/internal/config"
 )
 
+// main 处理程序入口；执行失败时输出错误，并以非零状态退出。
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
@@ -20,7 +21,7 @@ func main() {
 	}
 }
 
-// 初始化。运行错误沿调用链返回，不在业务包中退出进程。
+// run 读取配置并启动服务，收到退出信号后关闭服务；发生错误时交给调用方处理。
 func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {

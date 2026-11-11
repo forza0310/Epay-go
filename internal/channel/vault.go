@@ -18,9 +18,13 @@ var channelIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 // ConfigRepository 只保存元数据与密文，不接收明文凭证。
 type ConfigRepository interface {
+	// SaveChannel 新增或更新通道信息及配置密文，并记录保存事件。
 	SaveChannel(context.Context, string, string, string, string, bool, []byte) error
+	// LoadChannel 读取指定通道的信息和配置密文，不负责解密。
 	LoadChannel(context.Context, string) (string, string, string, bool, []byte, error)
+	// ListChannels 读取通道列表，不返回配置密文。
 	ListChannels(context.Context) ([]Channel, error)
+	// UpdateChannelMetadata 保留配置密文，只修改名称和启用状态；账户或插件不匹配时返回 false。
 	UpdateChannelMetadata(context.Context, Channel) (bool, error)
 }
 
@@ -31,7 +35,7 @@ type Vault struct {
 	plugins    map[string]bool
 }
 
-// NewVault 通过显式插件白名单拒绝未经编译注册的插件配置。
+// NewVault 创建收款配置管理服务，只允许保存 pluginIDs 中列出的插件配置。
 func NewVault(repository ConfigRepository, box *securebox.Box, pluginIDs []string) (*Vault, error) {
 	if repository == nil || box == nil {
 		return nil, errors.New("channel repository and encryption box are required")
@@ -43,7 +47,8 @@ func NewVault(repository ConfigRepository, box *securebox.Box, pluginIDs []strin
 	return &Vault{repository, box, allowed}, nil
 }
 
-// Save 校验 JSON 对象并加密保存；更新留空保留旧配置，新增不得为空。
+// Save 检查通道信息和 JSON 配置，将配置加密后保存。
+// 编辑时配置留空会保留原配置，但新增通道或更换账户、插件时必须填写配置。
 func (v *Vault) Save(ctx context.Context, c Channel, plain []byte) error {
 	if !channelIDPattern.MatchString(c.ID) || !v.plugins[c.PluginID] || !validLabel(c.AccountID) || !validLabel(c.Name) {
 		return ErrInvalidConfig
@@ -72,7 +77,7 @@ func (v *Vault) Save(ctx context.Context, c Channel, plain []byte) error {
 	return v.repository.SaveChannel(ctx, c.ID, c.PluginID, c.AccountID, c.Name, c.Enabled, ciphertext)
 }
 
-// Load 仅供可信内部调用解密配置；HTTP 管理页面不得调用并返回明文。
+// Load 读取并解密指定通道的配置，供服务端调用插件时使用；不得将返回的明文发送到管理页面。
 func (v *Vault) Load(ctx context.Context, id string) (Channel, []byte, error) {
 	plugin, account, name, enabled, ciphertext, err := v.repository.LoadChannel(ctx, id)
 	if err != nil {
@@ -85,8 +90,10 @@ func (v *Vault) Load(ctx context.Context, id string) (Channel, []byte, error) {
 	return Channel{ID: id, PluginID: plugin, AccountID: account, Name: name, Enabled: enabled}, plain, nil
 }
 
-// List 只读取可展示的元数据，不读取或解密密钥。
+// List 读取通道名称、账户和启用状态等列表信息，不读取配置密文。
 func (v *Vault) List(ctx context.Context) ([]Channel, error) { return v.repository.ListChannels(ctx) }
+
+// validLabel 检查名称或账户标识是否为非空 UTF-8 文本，长度不超过 200 字节，且不含换行或空字符。
 func validLabel(value string) bool {
 	return utf8.ValidString(value) && strings.TrimSpace(value) != "" && len(value) <= 200 && !strings.ContainsAny(value, "\r\n\x00")
 }

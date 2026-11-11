@@ -22,6 +22,8 @@ type App struct {
 	plugins *plugin.Registry
 }
 
+// New 注册构建时发现的插件，并创建 HTTP 服务；服务由 Run 启动。
+//
 // Go 没有专门的构造方法语法。New 是一种常用命名惯例，它只是普通函数，名字也可以换成其他名称。
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	registry, err := builtin.NewRegistry()
@@ -45,7 +47,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}, nil
 }
 
-// Run 在收到终止信号时停止接收请求，给予已进入的请求退出时间。
+// Run 启动 HTTP 服务；收到退出信号后停止接收新请求，最多等待 10 秒让正在处理的请求完成。
 // (a *App) 叫做接收者，表示这个方法关联到 *App 类型。
 func (a *App) Run(ctx context.Context) error {
 	listener, err := net.Listen("tcp", a.server.Addr)

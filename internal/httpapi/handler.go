@@ -11,10 +11,10 @@ import (
 // Handler 当前提供可运行的协议骨架；业务尚未接入，不能用于实际收款。
 type Handler struct{}
 
-// NewHandler 构造处理器，后续在此注入用例服务和管理员会话服务。
+// NewHandler 创建 HTTP 请求处理器，具体路由由 Routes 注册。
 func NewHandler() *Handler { return &Handler{} }
 
-// Routes 显式限制方法，健康检查与业务就绪检查分离。
+// Routes 注册各接口及允许的 HTTP 方法，并为所有请求添加响应头和请求体大小限制。
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux() // 创建 http.ServeMux，它实现了 ServeHTTP(...)，满足 http.Handler 接口
 	mux.HandleFunc("GET /healthz", h.health)
@@ -28,8 +28,8 @@ func (h *Handler) Routes() http.Handler {
 	return safetyHeaders(mux)
 }
 
-// 接收者没有写名字，因为方法体并不使用这个 Handler 对象
-// health 仅表示进程能够响应，不表示可以执行业务。
+// health 报告进程是否能响应请求，不代表支付功能已经可用。
+// 接收者没有写名字，因为方法体并不使用这个 Handler 对象。
 func (_ *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	// 读取不存在的键时，Go 不会抛出类似 Python KeyError 的异常，而是返回值类型的零值：
 	// value := data["missing"] // value是""
@@ -41,22 +41,22 @@ func (_ *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "stage": "scaffold"})
 }
 
-// ready 在持久化、鉴权和支付适配器完成之前保持未就绪。
+// ready 在支付功能尚未完成时返回未就绪状态，避免将服务启动误认为已经能够收款。
 func (_ *Handler) ready(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "payment service is scaffolded"})
 }
 
-// submit 预留页面跳转支付入口，正式实现需先验签、幂等建单再跳转。
+// submit 处理页面支付请求；目前尚未实现，返回明确的错误响应。
 func (_ *Handler) submit(w http.ResponseWriter, _ *http.Request) {
 	notImplemented(w, "页面跳转支付尚未实现")
 }
 
-// apiPay 预留服务端下单入口，支持 multipart/form-data 和表单编码的计划见 API 文档。
+// apiPay 处理 API 下单请求；目前尚未实现，返回明确的错误响应。
 func (_ *Handler) apiPay(w http.ResponseWriter, _ *http.Request) {
 	notImplemented(w, "API 支付尚未实现")
 }
 
-// api 分发查询动作，框架阶段不解析或记录查询字符串中的密钥。
+// api 检查 act 参数并选择对应处理分支；当前查询与退款功能尚未实现，不读取或记录调用密钥。
 func (_ *Handler) api(w http.ResponseWriter, r *http.Request) {
 	actions := r.URL.Query()["act"]
 	if len(actions) != 1 {
@@ -80,20 +80,22 @@ func (_ *Handler) api(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// admin 预留唯一管理员入口，鉴权未完成前不公开管理功能。
+// admin 处理后台入口请求；当前后台尚未接入，返回明确的错误响应。
 func (_ *Handler) admin(w http.ResponseWriter, _ *http.Request) {
 	notImplemented(w, "管理员后台尚未实现")
 }
 
-// notImplemented 对尚未接入的能力返回明确失败，禁止用假成功数据占位。
+// notImplemented 以 HTTP 501 告知调用方该功能尚未实现。
 func notImplemented(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusNotImplemented, message)
 }
+
+// writeError 按协议要求的 JSON 格式返回错误码和提示信息。
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, zpay.ErrorResponse{Code: "error", Message: message})
 }
 
-// writeJSON 只序列化受控的响应结构，调用方不得传入密钥配置。
+// writeJSON 将指定数据作为 JSON 响应返回；调用方须确保其中没有密钥等敏感信息。
 // any 是空接口的别名：type any = interface{}
 /** 接口值携带“具体类型”+“具体值”，如果接口的值是nil但是携带具体类型，就不是空接口值。因此类型断言成功后，有时还要判断接口携带的指针值是否为空。
 var response *zpay.ErrorResponse = nil
@@ -107,8 +109,8 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+// safetyHeaders 禁止缓存响应，限制请求体大小，并设置浏览器安全响应头。
 // 这种“在原有处理器外面增加行为”的方式，通常叫作 HTTP 中间件，可以联系 Java 的 Filter、装饰器模式理解。
-// safetyHeaders 关闭业务响应缓存，限制请求体并设置浏览器基础防护。
 func safetyHeaders(next http.Handler) http.Handler {
 	// HandlerFunc 是一个命名的函数类型：这个类型的值是函数，参数必须符合声明的签名，而且没有返回值
 	// HandlerFunc 类型定义了 ServeHTTP(...) 方法，满足 http.Handler 接口

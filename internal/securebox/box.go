@@ -13,7 +13,7 @@ import (
 // Box 是使用部署外置 256-bit 主密钥创建的不可变加密器。
 type Box struct{ aead cipher.AEAD }
 
-// New 拒绝非 32 字节密钥。
+// New 使用 32 字节密钥创建 AES-GCM 加解密器；密钥长度不符时返回错误。
 func New(key []byte) (*Box, error) {
 	if len(key) != 32 {
 		return nil, errors.New("master key must be exactly 32 bytes")
@@ -29,7 +29,7 @@ func New(key []byte) (*Box, error) {
 	return &Box{aead: aead}, nil
 }
 
-// Seal 使用随机 nonce，并将密文绑定到调用方指定的用途及对象标识。
+// Seal 使用随机 nonce 加密数据，并将用途标识加入完整性校验；解密时必须提供相同标识。
 func (b *Box) Seal(purpose string, plaintext []byte) ([]byte, error) {
 	if purpose == "" {
 		return nil, errors.New("encryption purpose is required")
@@ -42,7 +42,7 @@ func (b *Box) Seal(purpose string, plaintext []byte) ([]byte, error) {
 	return append(nonce, sealed...), nil
 }
 
-// Open 验证密文完整性和用途绑定；任何不匹配均返回错误。
+// Open 使用指定用途标识解密数据；密文被修改、密钥错误或用途标识不匹配时返回错误。
 func (b *Box) Open(purpose string, ciphertext []byte) ([]byte, error) {
 	if purpose == "" || len(ciphertext) < b.aead.NonceSize()+b.aead.Overhead() {
 		return nil, errors.New("invalid encrypted value")

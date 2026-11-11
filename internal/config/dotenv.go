@@ -15,7 +15,7 @@ const maxEnvFileBytes = 64 << 10
 
 type environment map[string]string
 
-// get 保留显式环境变量的优先级，包括显式设置的空值。
+// get 优先读取进程环境变量，未设置时才使用 .env 中的值；明确设置的空值也算已设置。
 func (e environment) get(name string) string {
 	if value, exists := os.LookupEnv(name); exists {
 		return value
@@ -23,7 +23,7 @@ func (e environment) get(name string) string {
 	return e[name]
 }
 
-// readEnvironment 每次加载独立配置快照；不存在 .env 时仍可纯环境变量部署。
+// readEnvironment 读取工作目录的 .env，文件不存在时返回空配置，不查找父目录或修改进程环境变量。
 func readEnvironment() (environment, error) {
 	file, err := os.Open(".env")
 	if errors.Is(err, os.ErrNotExist) {
@@ -74,6 +74,7 @@ func readEnvironment() (environment, error) {
 	return values, nil
 }
 
+// validEnvName 检查变量名是否只含英文字母、数字和下划线，且不能以数字开头。
 func validEnvName(name string) bool {
 	if name == "" {
 		return false
@@ -86,7 +87,7 @@ func validEnvName(name string) bool {
 	return true
 }
 
-// parseEnvValue 支持单行单双引号和行尾注释；美元符号与命令替换保持为普通文本。
+// parseEnvValue 解析配置值中的单行引号和行尾注释；保留美元符号等普通文本，不展开变量或执行命令。
 func parseEnvValue(raw string) (string, error) {
 	if raw == "" {
 		return "", nil

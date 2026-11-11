@@ -16,7 +16,7 @@ import (
 	"epay/internal/storage/sqlite"
 )
 
-// TestEncryptedPersistenceAndMigrations 验证迁移与加密配置在重启后保持一致，并拒绝错误密钥、密文错配和未知数据库版本。
+// TestEncryptedPersistenceAndMigrations 验证重启后数据库结构和加密配置仍可使用，错误主密钥、复制到其他通道的密文及未知迁移版本会被拒绝。
 func TestEncryptedPersistenceAndMigrations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "data", "epay.db")
@@ -100,7 +100,7 @@ func TestEncryptedPersistenceAndMigrations(t *testing.T) {
 	}
 }
 
-// TestPersistentRateLimits 验证来源与全局限流可跨重启保留，剩余等待时间递减且到期后解除限制。
+// TestPersistentRateLimits 验证登录次数限制在重启后仍生效，等待时长随时间减少，到期后允许再次尝试。
 func TestPersistentRateLimits(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "data", "epay.db")

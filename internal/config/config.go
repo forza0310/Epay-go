@@ -10,7 +10,7 @@ import (
 // Config 是启动配置，默认仅监听本机。
 type Config struct{ Addr string }
 
-// Load 合并工作目录 .env 与进程环境，并在启动前验证监听地址。
+// Load 从工作目录的 .env 和进程环境读取配置，并检查配置是否合法；已有环境变量优先。
 func Load() (Config, error) {
 	values, err := readEnvironment()
 	if err != nil {

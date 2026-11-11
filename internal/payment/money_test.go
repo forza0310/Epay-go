@@ -3,6 +3,7 @@ package payment
 
 import "testing"
 
+// TestParseMoney 验证金额字符串与整数分能准确转换，错误格式或超出范围的金额会被拒绝。
 func TestParseMoney(t *testing.T) {
 	for _, tc := range []struct {
 		input string

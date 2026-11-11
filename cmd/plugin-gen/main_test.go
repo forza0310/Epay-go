@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// fixture 在临时目录创建测试模块，复用真实注册表来验证插件发现和生成过程。
 func fixture(t *testing.T) string {
 	t.Helper()
 	t.Setenv("GOWORK", "off")
@@ -29,6 +30,7 @@ func fixture(t *testing.T) string {
 	return root
 }
 
+// putFixture 将测试源码写入临时模块，目录不存在时先创建目录。
 func putFixture(t *testing.T, root, path, source string) {
 	t.Helper()
 	destination := filepath.Join(root, path)
@@ -40,6 +42,7 @@ func putFixture(t *testing.T, root, path, source string) {
 	}
 }
 
+// addPlugin 创建指定 ID 的测试插件；所有插件故意使用同一包名，以检查导入别名是否生效。
 func addPlugin(t *testing.T, root, name, id string) {
 	t.Helper()
 	// 两个不同目录故意使用同一包名，验证生成器使用显式别名。
@@ -51,6 +54,7 @@ func addPlugin(t *testing.T, root, name, id string) {
     `, id))
 }
 
+// TestDiscoveryLifecycle 验证新增、删除插件后注册代码会正确更新，重复生成结果不变，且生成代码可以编译运行。
 func TestDiscoveryLifecycle(t *testing.T) {
 	root := fixture(t)
 	addPlugin(t, root, "zeta", "zeta")
@@ -119,6 +123,7 @@ func TestDiscoveryLifecycle(t *testing.T) {
 	}
 }
 
+// TestInvalidPluginsFailClearly 验证构造函数不符合要求、未实现插件接口或插件 ID 重复时会报错，生成失败时不会覆盖旧文件。
 func TestInvalidPluginsFailClearly(t *testing.T) {
 	cases := []struct {
 		name, source    string

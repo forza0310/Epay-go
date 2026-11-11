@@ -9,7 +9,7 @@ import (
 // Registry 按插件 ID 查找实现；构造完成后不再变更。
 type Registry struct{ providers map[string]Provider }
 
-// NewRegistry 拒绝空插件与重复 ID，避免后注册插件覆盖既有能力。
+// NewRegistry 按 ID 保存传入的插件，拒绝 nil、空 ID 或重复 ID。
 func NewRegistry(providers ...Provider) (*Registry, error) {
 	registry := &Registry{providers: make(map[string]Provider, len(providers))}
 	for _, provider := range providers {
@@ -28,10 +28,10 @@ func NewRegistry(providers ...Provider) (*Registry, error) {
 	return registry, nil
 }
 
-// Get 返回指定插件，不向调用方暴露可修改的注册映射。
+// Get 按 ID 查找插件，并返回是否找到。
 func (r *Registry) Get(id string) (Provider, bool) { p, ok := r.providers[id]; return p, ok }
 
-// IDs 为启动日志返回排序后的插件 ID。
+// IDs 返回按字典顺序排列的插件 ID，便于稳定展示和记录日志。
 func (r *Registry) IDs() []string {
 	ids := make([]string, 0, len(r.providers))
 	for id := range r.providers {

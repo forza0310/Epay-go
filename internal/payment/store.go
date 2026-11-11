@@ -17,13 +17,15 @@ type Confirmation struct {
 	Order   Order
 }
 
-// Store 将资金相关原子操作作为显式边界，禁止业务层分别提交状态和通知。
-// Create 对相同 PID/out_trade_no 的相同业务请求返回已有订单；内容冲突返回 ErrConflict。
-// Confirm 必须在同一事务内登记/关联唯一流水、确认待支付订单、创建唯一通知任务。
-// 超时、已关闭、金额或账户不匹配的流水不得自动发货，转入异常处理。
+// Store 约定订单保存、查询和到账确认方法；订单状态与通知任务必须在同一事务中保存。
 type Store interface {
+	// Create 保存订单；相同 PID 和外部订单号的相同请求返回已有订单，内容不一致时返回 ErrConflict。
 	Create(context.Context, Order) (Order, error)
+	// FindByTradeNo 按系统订单号查询订单。
 	FindByTradeNo(context.Context, string) (Order, error)
+	// FindByOutTradeNo 按 PID 和调用方提供的订单号查询订单。
 	FindByOutTradeNo(context.Context, string, string) (Order, error)
+	// Confirm 在同一事务中登记到账流水、确认订单已支付并创建通知任务；重复到账不得重复处理。
+	// 超时、已关闭、金额或账户不匹配的订单不得自动确认，应交给异常处理流程。
 	Confirm(context.Context, string, Receipt) (Confirmation, error)
 }

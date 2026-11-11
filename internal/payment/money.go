@@ -13,8 +13,8 @@ type Money int64
 
 var ErrInvalidMoney = errors.New("invalid money: expected a nonnegative decimal with at most two fractional digits")
 
-// ParseMoney 解析协议金额，拒绝符号、指数、空格、精度丢失与溢出。
-// 零金额可用于余额；创建支付订单必须另外要求金额大于零。
+// ParseMoney 将以元表示的金额字符串转换为整数分，拒绝正负号、科学计数法、空格、超过两位的小数或超出范围的金额。
+// 允许解析零金额；创建支付订单时，调用方仍须检查金额大于零。
 func ParseMoney(raw string) (Money, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) > 2 || len(parts[0]) == 0 {
@@ -47,5 +47,5 @@ func ParseMoney(raw string) (Money, error) {
 	return Money(cents), nil
 }
 
-// String 返回固定两位小数，用于持久化记录展示和协议响应。
+// String 将整数分格式化为以元表示、固定两位小数的字符串，用于展示和协议响应。
 func (m Money) String() string { return fmt.Sprintf("%d.%02d", m/100, m%100) }

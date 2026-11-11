@@ -11,8 +11,8 @@ import (
 	"strings"
 )
 
-// Sign 按参数名 ASCII 顺序连接原始参数值；只排除 sign、sign_type 和空字符串。
-// Values 必须来自单一参数源，重复参数一律拒绝，以消除签名解析歧义。
+// Sign 按参数名字典顺序拼接原始参数值，追加密钥后计算 MD5 签名；跳过 sign、sign_type 和空值。
+// 参数必须来自同一个来源；参数名为空或同一参数出现多次时返回错误，避免双方使用不同的值验签。
 func Sign(values url.Values, key string) (string, error) {
 	if key == "" {
 		return "", errors.New("empty signing key")
@@ -36,7 +36,8 @@ func Sign(values url.Values, key string) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// Verify 只接受文档规定的 MD5 签名类型，并对固定长度的签名做恒定时间比较。
+// Verify 检查签名类型是否为 MD5，并重新计算签名与传入值比较；参数或签名不合法时返回 false。
+// 使用恒定时间比较，避免通过比较耗时泄露匹配位置。
 func Verify(values url.Values, key string) bool {
 	if values.Get("sign_type") != "MD5" {
 		return false

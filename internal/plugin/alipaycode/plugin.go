@@ -28,15 +28,15 @@ type Plugin struct{}
 var _ plugin.Provider = (*Plugin)(nil)
 var _ plugin.Poller = (*Plugin)(nil)
 
-// New 构造无状态插件，账户配置按调用传入，避免不同账户配置串用。
+// New 创建不保存账户配置的插件实例；每次调用时单独传入配置，避免混用不同账户的信息。
 func New() *Plugin { return &Plugin{} }
 
-// Describe 明确标记骨架状态，已注册不等于已经可以收款。
+// Describe 返回插件名称和支持的支付方式，并标明支付功能尚未实现。
 func (*Plugin) Describe() plugin.Descriptor {
 	return plugin.Descriptor{ID: "alipaycode", Name: "支付宝账单收款", Methods: []string{"alipay"}, Polling: true, Implemented: false}
 }
 
-// ValidateConfig 仅校验配置结构；密钥格式、证书模式与联通性留待正式适配器实现。
+// ValidateConfig 检查配置的 JSON 格式、必填字段和转账模式，不验证密钥是否正确或支付宝是否能连接。
 func (*Plugin) ValidateConfig(raw json.RawMessage) error {
 	var cfg Config
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -56,12 +56,12 @@ func (*Plugin) ValidateConfig(raw json.RawMessage) error {
 	return nil
 }
 
-// CreatePayment 将生成绑定金额和订单备注的入口，当前明确拒绝真实支付。
+// CreatePayment 预留支付宝付款入口；当前返回未实现错误，不会生成可用的付款请求。
 func (*Plugin) CreatePayment(context.Context, json.RawMessage, plugin.Checkout) (payment.PaymentAction, error) {
 	return payment.PaymentAction{}, plugin.ErrNotImplemented
 }
 
-// Poll 将封装 alipay.data.bill.accountlog.query，并验证支付宝响应签名。
+// Poll 预留支付宝账单查询入口；当前返回未实现错误，不会调用支付宝。
 func (*Plugin) Poll(context.Context, json.RawMessage, plugin.PollRequest) (plugin.PollResult, error) {
 	return plugin.PollResult{}, plugin.ErrNotImplemented
 }
