@@ -2,7 +2,10 @@ module epay
 
 go 1.27.3
 
-require modernc.org/sqlite v1.62.0
+require (
+	golang.org/x/term v0.47.0
+	modernc.org/sqlite v1.62.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
