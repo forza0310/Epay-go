@@ -1,19 +1,19 @@
 # epay
 
-单管理员、自用收款、可扩展插件的 Go 服务。当前交付为 **框架与持久化基础版**，首个插件为 `alipaycode`；兼容接口以 [ZPAY 文档](https://z-pay.cn/doc.html#d1) 为依据。
+单管理员、自用收款、可扩展插件的 Go 服务。当前交付为 **框架、持久化与管理员服务基础版**，首个插件为 `alipaycode`；兼容接口以 [ZPAY 文档](https://z-pay.cn/doc.html#d1) 为依据。
 
 ## 当前状态
 
-- 已实现：进程入口、配置读取、HTTP 服务与优雅退出、健康检查、插件注册、协议数据结构、MD5 签名/验签、整数金额解析、SQLite 迁移与仓储、通道配置 AES-GCM 加密及主密钥校验。
+- 已实现：进程入口、配置读取、HTTP 服务与优雅退出、健康检查、插件注册、协议数据结构、MD5 签名/验签、整数金额解析、SQLite 迁移与仓储、通道配置 AES-GCM 加密及主密钥校验、管理员初始化、密码与 TOTP 验证和会话服务。
 - 已定义：订单/到账模型、原子持久化契约、alipaycode 插件边界。
-- 未实现：管理员鉴权与页面、真实下单/付款页面、支付宝调用、账单调度、订单查询及通知投递。
+- 未实现：管理员 HTTP 鉴权与页面、真实下单/付款页面、支付宝调用、账单调度、订单查询及通知投递。
 - 支付与管理路由返回 **HTTP 501**，`/readyz` 返回 **503**。目前不能用于真实收款。没有默认管理员、虚构订单或模拟成功返回。
 
 ## 本地运行
 
 按用户指定使用 **Go 1.27.3**。SQLite 使用纯 Go 驱动 `modernc.org/sqlite v1.62.0`，依赖固定在 `go.mod`/`go.sum`。
 
-持久化和加密以独立模块提供，启动装配及管理员业务另行接入；当前启动服务仍不提供真实收款或管理员登录。迁移脚本位于 `internal/storage/sqlite/migrations/`，随程序编译，不再维护独立 `schema.sql`。
+持久化、加密和管理员服务以独立模块提供，启动装配及 HTTP 接入另行交付；当前启动服务仍不提供真实收款或管理员登录。迁移脚本位于 `internal/storage/sqlite/migrations/`，随程序编译，不再维护独立 `schema.sql`。
 
 ```sh
 GOTOOLCHAIN=local go run ./cmd/epay
@@ -46,9 +46,11 @@ make check    # 自动发现插件，再执行 go vet ./... && go test ./...
 
 Makefile 显式禁用工具链自动切换。直接使用 Go 命令时同样设置 `GOTOOLCHAIN=local`。
 
-测试覆盖签名、金额、插件发现、配置加载、SQLite 迁移与重启、限流持久化及密文完整性。具体结果见 [验证记录](docs/verification.md)。
+测试覆盖签名、金额、插件发现、配置加载、SQLite 迁移与重启、限流持久化、密文完整性及管理员双因素与会话生命周期。具体结果见 [验证记录](docs/verification.md)。
 
 插件通过构建时自动发现注册。新增或删除 `internal/plugin/<name>/` 插件包后执行 `make build`，无需修改启动代码。生成文件须一并提交；`make check-generated` 可检查是否过期。直接使用 `go build` 前须执行 `make generate`，详细约定见 [插件设计](docs/plugins.md)。
+
+管理员服务的职责、安全规则与验证范围见 [管理员服务](docs/admin.md)。
 
 ## 阅读顺序
 

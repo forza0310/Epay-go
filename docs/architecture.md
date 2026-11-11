@@ -1,6 +1,8 @@
 # 架构与数据流程
 
-状态：框架、SQLite 持久化和加密模块已实现；管理员与支付业务另行接入。技术选型为 Go 标准库 HTTP、单实例 SQLite 和可信编译式插件。
+状态：框架、SQLite 持久化、加密和管理员服务已实现；HTTP 管理入口与支付业务另行接入。技术选型为 Go 标准库 HTTP、单实例 SQLite 和可信编译式插件。
+
+管理员服务的职责、安全规则与验证范围见 [管理员服务](admin.md)。
 
 ## 系统边界
 
@@ -18,7 +20,7 @@ internal/protocol/zpay           外部协议 DTO 与签名规范
 internal/payment                 订单、金额、到账流水、原子存储契约
 internal/channel                 收款账户与插件实例配置加密
 internal/securebox               AES-GCM 加解密
-internal/admin                   仓储使用的凭证数据结构
+internal/admin                   管理员初始化、双因素认证与会话
 internal/plugin                  插件契约、注册表
 internal/plugin/builtin          自动生成的插件装配
 internal/plugin/alipaycode       首个插件骨架
@@ -27,7 +29,7 @@ internal/storage/sqlite          连接、迁移、管理员及通道仓储
 
 ### 当前包依赖图
 
-箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。HTTP 与启动装配尚未接入持久化模块。SQLite 依赖管理员凭证及通道模型，身份业务和 HTTP 管理另行接入。
+箭头 `A → B` 表示 A 在 Go 源码中直接 import B，仅展示运行程序的项目内部依赖；cmd/plugin-gen 只使用标准库，是独立构建工具。HTTP 与启动装配尚未接入持久化模块。SQLite 依赖管理员凭证及通道模型，管理员服务通过仓储接口读写数据，HTTP 管理另行接入。
 
 ```mermaid
 flowchart TB
@@ -51,7 +53,7 @@ flowchart TB
     subgraph Domain["领域模型与存储契约"]
         Payment["internal/payment"]
         Channel["internal/channel"]
-        Admin["internal/admin<br/>凭证数据结构"]
+        Admin["internal/admin<br/>身份与会话服务"]
         Securebox["internal/securebox"]
         SQLite["internal/storage/sqlite"]
     end
@@ -69,6 +71,7 @@ flowchart TB
     Alipaycode --> Registry
     Alipaycode --> Payment
     Channel --> Securebox
+    Admin --> Securebox
     SQLite --> Admin
     SQLite --> Channel
     SQLite --> Securebox
@@ -78,7 +81,7 @@ flowchart TB
 
 目标依赖方向：HTTP → 用例/领域；插件和存储适配器 → 领域类型；app 装配具体实现。领域不导入 HTTP、SQL 或插件实现。用 Go 的结构体、方法和接口组合对象，不引入继承层次或服务定位器。
 
-后续在 `internal/admin` 中接入单管理员身份与会话用例，并按实际需要引入 `internal/notification`（通知投递）及 worker。当前不为尚未实现的功能创建空包。
+`internal/admin` 已提供单管理员身份与会话用例，后续接入 HTTP 与启动装配，并按实际需要引入 `internal/notification`（通知投递）及 worker。当前不为尚未实现的功能创建空包。
 
 ## 目标运行架构
 
@@ -93,7 +96,7 @@ flowchart TB
     Database[("SQLite 数据文件")]
 
     subgraph Process["epay 单进程"]
-        Admin["管理员后台与会话<br/>待实现"]
+        Admin["管理员后台与会话<br/>服务已实现，HTTP 待接入"]
         API["ZPAY 兼容入口<br/>已有路由，业务待接入"]
         Checkout["收银台与状态查询<br/>待实现"]
         Usecase["支付用例<br/>验签、幂等建单、订单查询"]
